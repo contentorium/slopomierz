@@ -1,0 +1,615 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Redakcyjny linter dla polskich tekstów: zakazane frazy, figury kontrastu, liczby bez przypisu.">
+<title>Slopomierz</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400&display=swap">
+<style>
+/* Layout: pastelowe kafle jak w aplikacji mobilnej — duży żółty szkic i fioletowy wynik u góry, kolorowe liczniki, tekst z zaznaczeniami obok zielonej listy uwag, różowy wykres akapitów; czarny dok na dole */
+:root{
+  --cream:#fbf6ec; --white:#ffffff; --ink:#17171c; --muted:#5f5d66;
+  --yellow:#f7d774; --pink:#f4b6d8; --magenta:#c2307a; --sage:#a9b97c; --lav:#c3c9f2;
+  --peach:#f9dcbc; --mint:#bfe7df; --coral:#f49a92; --rose:#f2c3bf;
+  --mark-ban:#fbd3e6; --mark-check:#fde7c4; --mark-dens:#dde2fb;
+  --amber:#b56a00; --blue:#3c56b8;
+  --font:"Poppins",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --r-xl:32px; --r-lg:24px; --r-md:16px;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+img{max-width:100%}
+html{background:var(--cream)}
+body{background:var(--cream);color:var(--ink);font-family:var(--font);font-size:15px;line-height:1.55;margin:0}
+button,textarea{font-family:var(--font)}
+.wrap{max-width:1180px;margin:0 auto;padding-block:20px 130px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:18px}
+
+/* top bar */
+.top{display:flex;align-items:center;gap:12px}
+.logo{width:46px;height:46px;flex:none}
+.top h1{margin:0;font-size:1.05rem;font-weight:600;line-height:1.2}
+.top p{margin:0;font-size:.8rem;color:var(--muted)}
+.top .icons{margin-left:auto;display:flex;gap:8px}
+.round{width:44px;height:44px;border-radius:50%;border:0;background:var(--white);display:grid;place-items:center;cursor:pointer;color:var(--ink);box-shadow:0 1px 0 rgba(0,0,0,.04)}
+.round:hover{background:var(--yellow)}
+.round svg{width:20px;height:20px}
+
+.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;align-items:start}
+.span2{grid-column:span 2}
+.full{grid-column:1 / -1}
+@media (max-width:900px){.grid{grid-template-columns:1fr}.span2,.full{grid-column:auto}}
+.card{border-radius:var(--r-xl);padding:24px;position:relative;overflow:hidden;min-width:0}
+.eyebrow{font-size:.78rem;font-weight:500;display:flex;align-items:center;gap:8px}
+.eyebrow .ic{width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,.7);display:grid;place-items:center}
+.eyebrow .ic svg{width:15px;height:15px}
+
+/* hero */
+.hero{background:var(--yellow);display:flex;flex-direction:column;gap:16px}
+.hero h2{margin:0;font-size:clamp(1.9rem,4.2vw,2.9rem);line-height:1.05;font-weight:600;letter-spacing:-.02em;max-width:14ch;text-wrap:balance}
+.hero h2 em{font-weight:300;font-style:italic;display:block}
+.hero .sub{margin:-6px 0 0;font-size:.85rem;color:#4a4220}
+#src{width:100%;min-height:230px;border:0;border-radius:var(--r-lg);background:var(--white);padding:18px 20px;font-size:.95rem;line-height:1.7;color:var(--ink);resize:vertical}
+.pills{display:flex;flex-wrap:wrap;gap:8px}
+.pill{border:0;border-radius:99px;padding:10px 18px;font-size:.85rem;font-weight:500;cursor:pointer;display:inline-flex;align-items:center;gap:8px;background:var(--white);color:var(--ink)}
+.pill.dark{background:var(--ink);color:var(--white)}
+.pill:hover{transform:translateY(-1px)}
+.pill svg{width:16px;height:16px}
+.sticker{position:absolute;top:18px;right:18px;width:112px;height:112px;display:grid;place-items:center;transform:rotate(-12deg)}
+.sticker svg{position:absolute;inset:0;width:100%;height:100%}
+.sticker .spin{transform-origin:50% 50%}
+.sticker span{position:relative;text-align:center;font-size:.7rem;font-weight:500;line-height:1.15}
+.sticker b{display:block;font-size:1.35rem;font-weight:600;font-variant-numeric:tabular-nums}
+@media (max-width:560px){.sticker{width:86px;height:86px;top:12px;right:10px}.sticker b{font-size:1.05rem}}
+
+/* score */
+.score{background:var(--lav);display:flex;flex-direction:column;gap:12px;min-height:100%}
+.score .big{font-size:3.6rem;font-weight:600;line-height:1;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.score .big small{font-size:1.6rem;font-weight:500}
+.ringwrap{position:relative;width:170px;height:170px;align-self:center;margin-top:4px}
+.ringwrap svg{width:100%;height:100%;transform:rotate(-90deg)}
+.ring-track{fill:none;stroke:rgba(255,255,255,.55);stroke-width:14}
+.ring-val{fill:none;stroke:var(--ink);stroke-width:14;stroke-linecap:round;transition:stroke-dashoffset .8s cubic-bezier(.3,.8,.3,1),stroke .3s}
+.ringcore{position:absolute;inset:26px;border-radius:50%;background:var(--white);display:grid;place-items:center;text-align:center}
+.ringcore b{display:block;font-size:1.5rem;font-weight:600;line-height:1}
+.ringcore small{font-size:.72rem;color:var(--muted)}
+.verdict{margin:0;font-size:.85rem;line-height:1.45}
+.dot-red{position:absolute;top:8px;right:20px;width:26px;height:26px;border-radius:50%;background:var(--magenta);display:grid;place-items:center;color:#fff;font-size:.7rem;font-weight:600;box-shadow:0 0 0 4px var(--lav)}
+
+/* tiles */
+.tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:18px}
+@media (max-width:900px){.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.tile{border-radius:var(--r-lg);padding:18px 18px 14px;display:flex;flex-direction:column;gap:6px;border:0;text-align:left;cursor:pointer;color:var(--ink);min-width:0}
+.tile .t{font-size:.85rem;font-weight:600;display:flex;justify-content:space-between;gap:8px}
+.tile .t i{width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,.65);display:grid;place-items:center;font-style:normal;font-size:.8rem}
+.tile .n{font-size:2.3rem;font-weight:600;line-height:1.1;font-variant-numeric:tabular-nums}
+.tile .d{font-size:.75rem;color:rgba(23,23,28,.62);min-height:2.3em}
+.tile .go{font-size:.8rem;font-weight:600;display:flex;justify-content:space-between;margin-top:4px}
+.tile[aria-pressed="true"]{outline:3px solid var(--ink);outline-offset:-3px}
+.t-ban{background:var(--rose)} .t-check{background:var(--peach)} .t-dens{background:var(--mint)} .t-num{background:var(--coral)}
+
+/* preview */
+.preview-card{background:var(--white)}
+.seg{display:flex;flex-wrap:wrap;gap:4px;background:var(--cream);border-radius:99px;padding:4px;width:max-content;max-width:100%}
+.seg button{border:0;background:transparent;border-radius:99px;padding:7px 14px;font-size:.8rem;font-weight:500;color:var(--muted);cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--white)}
+.head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px}
+.head h3{margin:0;font-size:1.25rem;font-weight:600}
+#preview{font-size:.98rem;line-height:1.9;white-space:pre-wrap;overflow-wrap:anywhere;min-height:140px}
+#preview:empty::before{content:"Tu pojawi się tekst z zaznaczeniami.";color:var(--muted)}
+mark{color:inherit;border-radius:6px;padding:1px 3px;cursor:pointer;text-underline-offset:4px;text-decoration-thickness:2px}
+mark.ban{background:var(--mark-ban);text-decoration:underline wavy var(--magenta)}
+mark.check{background:var(--mark-check);text-decoration:underline var(--amber)}
+mark.dens{background:var(--mark-dens);text-decoration:underline dotted var(--blue)}
+mark.flash{box-shadow:0 0 0 2px var(--ink)}
+
+/* findings */
+.findings-card{background:var(--sage)}
+.findings-card .head h3{font-size:1.15rem}
+.count-badge{background:var(--ink);color:var(--white);border-radius:99px;padding:3px 12px;font-size:.78rem;font-weight:600;font-variant-numeric:tabular-nums}
+#findings{display:flex;flex-direction:column;gap:14px;max-height:620px;overflow:auto;padding-right:4px;margin-right:-4px}
+.group h4{margin:0 0 6px;font-size:.75rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;display:flex;justify-content:space-between;color:#2f3818}
+.group ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.item{width:100%;border:0;cursor:pointer;text-align:left;display:grid;grid-template-columns:34px minmax(0,1fr) 16px;gap:10px;align-items:center;padding:8px 12px 8px 8px;border-radius:99px;background:rgba(255,255,255,.55);color:var(--ink)}
+.item:hover,.item.on{background:var(--white)}
+.item .b{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:var(--white)}
+.item .b i{width:10px;height:10px;border-radius:50%}
+.item .b i.ban{background:var(--magenta)} .item .b i.check{background:var(--amber)} .item .b i.dens{background:var(--blue)}
+.item q{quotes:none;font-size:.82rem;font-weight:500;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.item small{display:block;font-size:.72rem;color:#454a3a;line-height:1.35}
+.item svg{width:14px;height:14px}
+.empty{margin:0;font-size:.85rem;background:rgba(255,255,255,.55);border-radius:var(--r-md);padding:14px}
+
+/* chart */
+.chart-card{background:var(--pink)}
+.chart-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:8px}
+.chart-head h3{margin:0;font-size:1.4rem;font-weight:500}
+.chart-head p{margin:0;font-size:.78rem;color:#5b2a45}
+.paras{display:flex;gap:6px;flex-wrap:wrap;margin:14px 0 4px}
+.paras button{width:38px;height:38px;border-radius:50%;border:0;background:rgba(255,255,255,.8);font-size:.72rem;font-weight:600;cursor:pointer;color:var(--ink)}
+.paras button.peak{background:var(--magenta);color:#fff}
+.paras button:hover{background:var(--ink);color:#fff}
+.bars{height:190px;display:flex;align-items:flex-end;gap:10px;padding-top:30px;overflow-x:auto}
+.bar{flex:1 0 28px;max-width:70px;display:flex;flex-direction:column;align-items:center;gap:6px;height:100%;justify-content:flex-end;cursor:pointer;border:0;background:transparent;padding:0;color:var(--ink)}
+.bar .col{width:100%;border-radius:10px 10px 4px 4px;background:rgba(255,255,255,.75);position:relative;min-height:4px;transition:height .6s cubic-bezier(.3,.8,.3,1)}
+.bar.peak .col{background:repeating-linear-gradient(45deg,var(--magenta) 0 4px,var(--pink) 4px 8px);border:2px solid var(--magenta)}
+.bar .v{font-size:.72rem;font-weight:600;font-variant-numeric:tabular-nums}
+.bar .l{font-size:.68rem;color:#5b2a45}
+.bar.peak .v{font-size:1.1rem;color:var(--magenta)}
+
+/* custom list */
+.custom-card{background:var(--mint)}
+.custom-card h3{margin:0 0 4px;font-size:1.15rem;font-weight:600}
+.custom-card p{margin:0 0 12px;font-size:.78rem;color:#2c4a44}
+#custom{width:100%;min-height:150px;border:0;border-radius:var(--r-lg);background:rgba(255,255,255,.75);padding:14px 16px;font-size:.85rem;line-height:1.6;resize:vertical;color:var(--ink)}
+code{font-family:var(--font);font-weight:600;background:rgba(255,255,255,.7);border-radius:6px;padding:0 5px}
+
+/* dock */
+.dock{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(14px + env(safe-area-inset-bottom,0px));background:var(--ink);border-radius:99px;padding:8px;display:flex;gap:6px;z-index:20;box-shadow:0 10px 30px rgba(23,23,28,.25)}
+.dock button{width:48px;height:48px;border-radius:50%;border:0;background:transparent;color:var(--white);display:grid;place-items:center;cursor:pointer}
+.dock button.on{background:var(--lav);color:var(--ink)}
+.dock svg{width:20px;height:20px}
+.toast{position:fixed;left:50%;bottom:calc(88px + env(safe-area-inset-bottom,0px));transform:translate(-50%,20px);background:var(--white);border-radius:99px;padding:10px 18px;font-size:.85rem;font-weight:500;opacity:0;pointer-events:none;z-index:21;box-shadow:0 6px 20px rgba(0,0,0,.12)}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+#confetti{position:fixed;inset:0;pointer-events:none;z-index:30}
+
+button:focus-visible,textarea:focus-visible{outline:3px solid var(--ink);outline-offset:2px}
+@media (prefers-reduced-motion:no-preference){
+  .sticker .spin{animation:spin 24s linear infinite}
+  .pill,.tile,.item,.toast{transition:transform .2s,background .2s,opacity .25s}
+  .tile:hover{transform:translateY(-3px)}
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.ring-val,.bar .col{transition:none}}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="top">
+    <svg class="logo" viewBox="0 0 100 100" aria-hidden="true"><path id="logoBlob" fill="#c2307a"></path><path d="M28 62 A22 22 0 0 1 72 62" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round"></path><path d="M50 62 L64 44" stroke="#fff" stroke-width="6" stroke-linecap="round"></path><circle cx="50" cy="62" r="5" fill="#fff"></circle></svg>
+    <div><h1>Slopomierz</h1><p>mierzy slop w polskich tekstach</p></div>
+    <div class="icons">
+      <button class="round" id="sampleTop" type="button" aria-label="Wczytaj przykład" title="Wczytaj przykład"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg></button>
+      <button class="round" id="clearTop" type="button" aria-label="Wyczyść tekst" title="Wyczyść tekst"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg></button>
+    </div>
+  </header>
+
+  <div class="grid">
+    <section class="card hero span2" id="secText">
+      <div class="sticker" aria-hidden="true"><svg viewBox="0 0 100 100"><path class="spin" id="stickerBlob" fill="#f4b6d8"></path></svg><span><b id="sWords">0</b>słów</span></div>
+      <h2>Wklej szkic, <em>znajdę watę</em></h2>
+      <p class="sub">Zaznaczam, nie poprawiam. Ostatnie słowo zostaje przy Tobie.</p>
+      <label for="src" class="eyebrow"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg></span>Tekst do sprawdzenia</label>
+      <textarea id="src" spellcheck="false"></textarea>
+      <div class="pills">
+        <button class="pill dark" id="copyReport" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>Kopiuj raport</button>
+        <button class="pill" id="sample" type="button">Wczytaj przykład</button>
+        <button class="pill" id="clear" type="button">Wyczyść</button>
+      </div>
+    </section>
+
+    <section class="card score" id="secScore">
+      <div class="eyebrow"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 18l5-6 4 3 7-9"/></svg></span>Czystość tekstu</div>
+      <div class="big"><span id="scoreNum">0</span><small>%</small></div>
+      <div class="ringwrap">
+        <svg viewBox="0 0 120 120" aria-hidden="true"><circle class="ring-track" cx="60" cy="60" r="50"/><circle class="ring-val" id="ring" cx="60" cy="60" r="50"/></svg>
+        <div class="ringcore"><div><b id="totalHits">0</b><small>uwag</small></div></div>
+        <div class="dot-red" id="banDot" title="Frazy zakazane">0</div>
+      </div>
+      <p class="verdict" id="verdict"></p>
+    </section>
+
+    <div class="tiles full">
+      <button type="button" class="tile t-ban" data-f="ban" aria-pressed="false"><span class="t">Zakazane<i>✕</i></span><span class="n" id="sBan">0</span><span class="d">Frazy z listy, które wylatują bez dyskusji</span><span class="go">Pokaż<span>→</span></span></button>
+      <button type="button" class="tile t-check" data-f="check" aria-pressed="false"><span class="t">Do sprawdzenia<i>?</i></span><span class="n" id="sCheck">0</span><span class="d">Może być w porządku, zależy od kontekstu</span><span class="go">Pokaż<span>→</span></span></button>
+      <button type="button" class="tile t-dens" data-f="dens" aria-pressed="false"><span class="t">Kontrasty<i>⇄</i></span><span class="n" id="sContrast">0</span><span class="d" id="sContrastNote">Najwyżej 2–3 na tekst</span><span class="go">Pokaż<span>→</span></span></button>
+      <button type="button" class="tile t-num" data-f="num" aria-pressed="false"><span class="t">Bez przypisu<i>#</i></span><span class="n" id="sNum">0</span><span class="d">Liczby bez [^n] w tym samym zdaniu</span><span class="go">Pokaż<span>→</span></span></button>
+    </div>
+
+    <section class="card preview-card span2" id="secPreview">
+      <div class="head">
+        <h3>Tekst z zaznaczeniami</h3>
+        <div class="seg" role="group" aria-label="Filtr uwag">
+          <button type="button" data-f="all" aria-pressed="true">Wszystko</button>
+          <button type="button" data-f="ban" aria-pressed="false">Zakazane</button>
+          <button type="button" data-f="check" aria-pressed="false">Sprawdź</button>
+          <button type="button" data-f="dens" aria-pressed="false">Kontrasty</button>
+          <button type="button" data-f="num" aria-pressed="false">Liczby</button>
+        </div>
+      </div>
+      <div id="preview" aria-live="polite"></div>
+    </section>
+
+    <section class="card findings-card" id="secFindings">
+      <div class="head"><h3>Uwagi na marginesie</h3><span class="count-badge" id="visCount">0</span></div>
+      <div id="findings"></div>
+    </section>
+
+    <section class="card chart-card span2" id="secChart">
+      <div class="chart-head"><h3>Gdzie jest najgęściej</h3><p id="chartNote">uwagi w kolejnych akapitach</p></div>
+      <div class="paras" id="paras"></div>
+      <div class="bars" id="bars"></div>
+    </section>
+
+    <section class="card custom-card" id="secList">
+      <h3>Twoja lista fraz</h3>
+      <p>Jedna fraza w linii. Gwiazdka zastępuje końcówkę, więc <code>dedykowan*</code> złapie każdą odmianę. Lista zostaje w tej przeglądarce.</p>
+      <label for="custom" class="eyebrow" style="margin-bottom:8px">Własne frazy</label>
+      <textarea id="custom" spellcheck="false" placeholder="insight*&#10;na ten moment&#10;dedykowan*"></textarea>
+    </section>
+  </div>
+</div>
+
+<nav class="dock" aria-label="Sekcje">
+  <button type="button" class="on" data-go="secText" aria-label="Tekst"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg></button>
+  <button type="button" data-go="secScore" aria-label="Wynik"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 8 8h-8z" fill="currentColor"/></svg></button>
+  <button type="button" data-go="secPreview" aria-label="Uwagi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 6h14M5 12h9M5 18h12"/></svg></button>
+  <button type="button" data-go="secChart" aria-label="Wykres"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 20V11M12 20V5M18 20v-6"/></svg></button>
+  <button type="button" data-go="secList" aria-label="Twoja lista"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
+</nav>
+<div class="toast" id="toast" role="status"></div>
+<canvas id="confetti" aria-hidden="true"></canvas>
+
+<script>
+(() => {
+const L = '\\p{L}';
+const stem = s => new RegExp(`(?<!${L})(?:${s})${L}*`, 'giu');
+const phrase = s => new RegExp(`(?<!${L})(?:${s})(?!${L})`, 'giu');
+const SENT_START = '(?<=^|[.!?]\\s+)';
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+const CAT = {
+  filler:'Puste słowa', hedge:'Asekuracja', calque:'Kalki i wzmacniacze', open:'Otwarcia',
+  contrast:'Figury kontrastu', rhythm:'Rytm', close:'Zamknięcia i deklaracje',
+  head:'Śródtytuły', num:'Liczby bez przypisu', foot:'Przypisy', custom:'Twoja lista'
+};
+
+const RULES = [
+  ['filler','ban',stem('realn'),'„Realny” to zwykle ozdobnik. Co konkretnie jest prawdziwe?'],
+  ['filler','ban',stem('kluczow'),'Jeśli coś jest najważniejsze, pokaż dlaczego.'],
+  ['filler','ban',stem('istotn'),'Nazwij skutek zamiast oceniać wagę.'],
+  ['filler','ban',stem('fundamentaln'),'Zakazane słowo.'],
+  ['filler','ban',stem('strategiczn'),'Zakazane jako ozdobnik.'],
+  ['filler','ban',stem('innowacyjn'),'Zakazane słowo.'],
+  ['filler','ban',stem('synergi'),'Zakazane słowo.'],
+  ['filler','ban',stem('holistyczn'),'Zakazane słowo.'],
+  ['filler','ban',phrase('game[- ]?changer'+L+'*'),'Zakazane słowo.'],
+  ['filler','check',stem('przełom'),'„Przełom” jako ozdobnik odpada. „Na przełomie roku” jest w porządku.'],
+  ['filler','ban',stem('rewolucj|rewolucyjn'),'Zakazane słowo.'],
+  ['filler','ban',stem('pułap'),'„Pułapka” jako zaklęcie. Opisz, co się dzieje.'],
+  ['filler','ban',phrase('warto'),'„Warto” jako rada. Napisz, co się stanie, jeśli ktoś to zrobi.'],
+  ['filler','check',stem('wartoś'),'Czy „wartość” znaczy tu coś mierzalnego?'],
+  ['hedge','ban',phrase('może okazać się|może się okazać'),'Asekuracja. Albo wiesz, albo napisz, czego nie wiadomo.'],
+  ['hedge','ban',phrase('wydaje się'),'Asekuracja.'],
+  ['hedge','ban',phrase('w pewnym sensie'),'Asekuracja.'],
+  ['hedge','check',phrase('w praktyce'),'Zostaje tylko, jeśli dalej naprawdę jest praktyka.'],
+  ['calque','ban',phrase('na koniec dnia'),'Kalka z „at the end of the day”.'],
+  ['calque','check',phrase('po prostu'),'Zakazane jako wzmacniacz.'],
+  ['calque','ban',phrase('jedn'+L+'* z najważniejszych|jedn'+L+'* z najbardziej'),'Bez listy to pusta przesada.'],
+  ['open','ban',phrase('przestał'+L+'* być'),'Otwarcie „X przestało być Y”.'],
+  ['open','ban',phrase('problem polega na tym'),'Zakazane otwarcie.'],
+  ['open','ban',phrase('w dzisiejszym dynamicznym świecie|w dzisiejszych czasach|w dobie|w ostatnich latach|w ostatnim czasie|od jakiegoś czasu|coraz częściej'),'Mglisty czas. Podaj datę albo wydarzenie.'],
+  ['open','ban',phrase('wyobraź sobie|wyobraźmy sobie'),'Inscenizacja.'],
+  ['contrast','dens',new RegExp(`(?<!${L})nie\\s[^.!?\\n]{1,60}?,\\s*(?:tylko|lecz|a raczej)(?!${L})`,'giu'),'„Nie X, tylko Y”. Zostaw tam, gdzie kontrast niesie tezę.'],
+  ['contrast','dens',new RegExp(`,\\s(?:a\\s)?nie\\s(?!(?:ma|mam|wiem|jest|są|było|była|był|będzie|można|trzeba|tylko|zawsze|da|chodzi|wszyscy|każdy|działa)(?!${L}))${L}+`,'giu'),'„X, nie Y”. Najwyżej 2–3 w tekście.'],
+  ['contrast','ban',phrase('klucz do sukcesu'),'Zakazane.'],
+  ['contrast','ban',phrase('dwa oblicza|dwóch obliczach'),'Zużyta metafora.'],
+  ['close','ban',new RegExp(SENT_START+'Tyle\\.(?=\\s|$)','gmu'),'„Tyle.” jako zdanie.'],
+  ['close','ban',phrase('to temat na osobny tekst|temat na osobny artykuł|temat na osobny tekst'),'Służalcze zamknięcie.'],
+  ['close','ban',phrase('jeśli chcesz, mogę|jeśli chcesz, to mogę'),'Służalcze zamknięcie.'],
+  ['close','ban',phrase('trzeba sobie powiedzieć szczerze|powiedzmy sobie szczerze|bez owijania w bawełnę|mówiąc wprost|nie oszukujmy się'),'Zapowiedź własnej szczerości.'],
+  ['close','ban',phrase('zwykl'+L+'* ludzi'+L+'*|zwykły człowiek|przeciętn'+L+'* użytkowni'+L+'*'),'Pseudokonkret. Kto dokładnie?'],
+  ['rhythm','check',new RegExp(SENT_START+'(?:Po pierwsze|Po drugie|Po trzecie|Pierwsz'+L+'*|Drug'+L+'*|Trzeci'+L+'*)(?!'+L+')','gmu'),'Wyliczenie „pierwsze, drugie, trzecie”.'],
+  ['rhythm','check',new RegExp(`(?<!${L})${L}{3,},\\s${L}{3,}\\s(?:i|oraz)\\s${L}{3,}(?!${L})`,'gu'),'Możliwa triada. Zostaw, jeśli trzy elementy to treść.'],
+];
+
+const $ = id => document.getElementById(id);
+const src = $('src'), preview = $('preview'), findingsEl = $('findings'), custom = $('custom');
+const store = {
+  get(k){ try { return localStorage.getItem(k); } catch(e){ return null; } },
+  set(k,v){ try { localStorage.setItem(k,v); } catch(e){} }
+};
+let filter = 'all';
+const FILTERS = {
+  all: () => true,
+  ban: h => h.sev === 'ban',
+  check: h => h.sev === 'check' && h.cat !== 'num',
+  dens: h => h.sev === 'dens',
+  num: h => h.cat === 'num'
+};
+
+const SAMPLE = `## Dlaczego testy wydajnościowe są ważne?
+
+W dzisiejszych czasach testowanie wydajności przestało być luksusem. To kluczowy element jakości, nie dodatek na koniec projektu. Problem polega na tym, że wiele zespołów odkłada je na później.
+
+Według badań 53% użytkowników porzuca stronę, która ładuje się dłużej niż 3 sekundy. Raport z 2025 roku łączy czas ładowania z konwersją[^1]. Warto o tym pamiętać przed Black Friday[^2].
+
+Nie chodzi o szybkość, tylko o stabilność. Testy dają spokój, przewidywalność i kontrolę. Testy pokazują słabe miejsca. Testy chronią przychód. Testy budują zaufanie.
+
+W praktyce wydaje się, że po prostu brakuje czasu. Tyle.
+
+[^1]: https://example.com/raport-2025`;
+
+/* kształty: falisty krąg jak naklejka */
+function blob(n, R, a){
+  let d = '';
+  for (let k = 0; k <= 360; k += 2) {
+    const t = k * Math.PI / 180, r = R + a * Math.cos(n * t);
+    d += (k ? 'L' : 'M') + (50 + r * Math.cos(t)).toFixed(2) + ' ' + (50 + r * Math.sin(t)).toFixed(2);
+  }
+  return d + 'Z';
+}
+$('stickerBlob').setAttribute('d', blob(10, 44, 5));
+$('logoBlob').setAttribute('d', blob(8, 44, 5));
+
+function escapeHtml(s){ return s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function escapeRe(s){ return s.replace(/[.+?^${}()|[\]\\]/g,'\\$&'); }
+
+function customRules(){
+  return custom.value.split('\n').map(s=>s.trim()).filter(Boolean).map(p => {
+    const body = escapeRe(p).replace(/\\?\*/g, L+'*').replace(/\s+/g,'\\s+');
+    try { return ['custom','ban',new RegExp(`(?<!${L})${body}(?!${L})`,'giu'),'Z Twojej listy.']; } catch(e){ return null; }
+  }).filter(Boolean);
+}
+
+function sentences(text){
+  const out = []; const re = /(?:[^.!?\n]|[.!?](?!\s|$))+[.!?]*/g; let m;
+  while ((m = re.exec(text))) { if (m[0].trim()) out.push({s:m[0], i:m.index}); }
+  return out;
+}
+
+function analyze(text){
+  const hits = [];
+  const add = (start,end,cat,sev,note) => hits.push({start,end,cat,sev,note});
+
+  for (const [cat,sev,re,note] of RULES.concat(customRules())) {
+    re.lastIndex = 0; let m;
+    while ((m = re.exec(text))) { if (!m[0].length){ re.lastIndex++; continue; } add(m.index, m.index+m[0].length, cat, sev, note); }
+  }
+
+  const urls = []; { const re=/https?:\/\/\S+/g; let m; while((m=re.exec(text))) urls.push([m.index,m.index+m[0].length]); }
+  const inUrl = i => urls.some(([a,b]) => i>=a && i<b);
+
+  const sents = sentences(text);
+  for (const {s,i} of sents) {
+    const lineStart = text.lastIndexOf('\n', i) + 1;
+    if (text.slice(lineStart, lineStart+2) === '[^' || /\[\^/.test(s)) continue;
+    const re = /(?<![\p{L}\d^])\d+(?:[.,]\d+)?(?:\s?%)?/gu; let m;
+    while ((m = re.exec(s))) {
+      const abs = i + m.index, val = m[0];
+      if (inUrl(abs) || /^(19|20)\d\d$/.test(val)) continue;
+      const before = text.slice(text.lastIndexOf('\n', abs-1)+1, abs);
+      if (/^\s*$/.test(before) && /^[.)]/.test(text.slice(abs+val.length, abs+val.length+1))) continue;
+      add(abs, abs+val.length, 'num', 'check', 'Liczba bez przypisu w tym zdaniu. Dodaj [^n] ze źródłem.');
+    }
+  }
+
+  const firsts = sents.map(({s,i}) => { const m = /\p{L}+/u.exec(s); if (!m || s.slice(0,m.index).trim().length>2) return null; return {w:m[0].toLowerCase(), start:i+m.index, end:i+m.index+m[0].length}; });
+  let run = [];
+  const flush = () => { if (run.length>=3) run.forEach(f => add(f.start,f.end,'rhythm','check',`Anafora: ${run.length} zdania z rzędu zaczynają się od „${run[0].w}”.`)); run=[]; };
+  firsts.forEach(f => { if (f && run.length && run[0].w===f.w) run.push(f); else { flush(); if (f) run=[f]; } }); flush();
+
+  const heads = []; { const re=/^(#{1,6})\s+(.+)$/gm; let m; while((m=re.exec(text))) heads.push({t:m[2], start:m.index+m[1].length+1}); }
+  const qWords = /^(czy|jak|dlaczego|po co|co|kiedy|gdzie|ile|kto|czym|czego)(?!\p{L})/iu;
+  heads.forEach(h => {
+    const end = h.start + h.t.length;
+    if (h.t.includes('?') || qWords.test(h.t)) add(h.start,end,'head','ban','Śródtytuł w formie pytania, nawet bez znaku zapytania.');
+    else if (/co z tego wynika|co to oznacza w praktyce/iu.test(h.t)) add(h.start,end,'head','ban','Generyczny śródtytuł. Opisz konkretnie, o czym jest sekcja.');
+  });
+  const ktore = heads.filter(h => /,\s*któr\p{L}*/u.test(h.t));
+  if (ktore.length>=2) ktore.forEach(h => add(h.start,h.start+h.t.length,'head','check',`Śródtytuły „X, które Y”: ${ktore.length} w tekście. Jeden to styl, kilka to szablon.`));
+
+  const defs = new Set(), refs = [];
+  { const re=/^\[\^([^\]]+)\]:/gm; let m; while((m=re.exec(text))) defs.add(m[1]); }
+  { const re=/\[\^([^\]]+)\](?!:)/g; let m; while((m=re.exec(text))) refs.push({id:m[1],start:m.index,end:m.index+m[0].length}); }
+  const used = new Set(refs.map(r=>r.id));
+  refs.forEach(r => { if (!defs.has(r.id)) add(r.start,r.end,'foot','ban',`Przypis [^${r.id}] nie ma źródła na dole.`); });
+  { const re=/^\[\^([^\]]+)\]:/gm; let m; while((m=re.exec(text))) if(!used.has(m[1])) add(m.index,m.index+m[0].length,'foot','check',`Źródło [^${m[1]}] nie jest nigdzie przywołane w tekście.`); }
+
+  hits.sort((a,b) => a.start-b.start || (b.end-b.start)-(a.end-a.start));
+  const clean = []; let lastEnd = -1;
+  for (const h of hits) if (h.start >= lastEnd) { clean.push(h); lastEnd = h.end; }
+  return {hits:clean, words:(text.match(/\p{L}[\p{L}\d'-]*/gu)||[]).length};
+}
+
+function paragraphs(text){
+  const out = []; const re = /[^\n]+(?:\n(?!\s*\n)[^\n]*)*/g; let m;
+  while ((m = re.exec(text))) {
+    const t = m[0];
+    if (!t.trim() || /^\s*\[\^/.test(t) || /^\s*#/.test(t)) continue;
+    out.push({start:m.index, end:m.index+t.length});
+  }
+  return out;
+}
+
+/* liczniki, które dojeżdżają do wartości */
+const shown = {};
+function countTo(id, val){
+  const el = $(id), from = shown[id] ?? 0; shown[id] = val;
+  if (reduced || from === val) { el.textContent = val; return; }
+  const t0 = performance.now(), dur = 450;
+  const step = now => { const p = Math.min(1,(now-t0)/dur), e = 1-Math.pow(1-p,3); el.textContent = Math.round(from+(val-from)*e); if (p<1) requestAnimationFrame(step); };
+  requestAnimationFrame(step);
+}
+
+const CIRC = 2*Math.PI*50;
+$('ring').style.strokeDasharray = CIRC;
+let lastBan = null, firstRender = true, current = {hits:[], words:0};
+
+function render(){
+  const text = src.value;
+  store.set('cd-draft', text);
+  const res = analyze(text); current = res;
+  const {hits, words} = res;
+  const vis = hits.filter(FILTERS[filter]);
+
+  let html = '', pos = 0;
+  vis.forEach((h,n) => {
+    html += escapeHtml(text.slice(pos,h.start));
+    html += `<mark class="${h.sev}" data-n="${n}" title="${escapeHtml(h.note)}">${escapeHtml(text.slice(h.start,h.end))}</mark>`;
+    pos = h.end;
+  });
+  html += escapeHtml(text.slice(pos));
+  preview.innerHTML = text ? html : '';
+
+  const groups = {};
+  vis.forEach((h,n) => { (groups[h.cat] ||= []).push({...h,n}); });
+  const order = Object.keys(CAT).filter(c => groups[c]);
+  const chev = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg>';
+  findingsEl.innerHTML = order.length ? order.map(c => `
+    <div class="group"><h4>${CAT[c]}<span>${groups[c].length}</span></h4><ul>
+    ${groups[c].map(h => `<li><button type="button" class="item" data-n="${h.n}"><span class="b"><i class="${h.sev}"></i></span><span><q>${escapeHtml(text.slice(h.start,h.end).slice(0,70))}</q><small>${escapeHtml(h.note)}</small></span>${chev}</button></li>`).join('')}
+    </ul></div>`).join('') : `<p class="empty">${text.trim() ? (filter==='all' ? 'Czysto. Nic z listy nie znalazłam.' : 'W tym filtrze nic nie ma.') : 'Wklej tekst, a uwagi pojawią się tutaj.'}</p>`;
+  $('visCount').textContent = vis.length;
+
+  const ban = hits.filter(FILTERS.ban).length, check = hits.filter(FILTERS.check).length;
+  const dens = hits.filter(FILTERS.dens).length, num = hits.filter(FILTERS.num).length;
+  countTo('sWords', words); countTo('sBan', ban); countTo('sCheck', check); countTo('sContrast', dens); countTo('sNum', num);
+  countTo('totalHits', hits.length);
+  $('banDot').textContent = ban; $('banDot').hidden = ban === 0;
+  $('sContrastNote').textContent = dens > 3 ? `Za dużo. Wytnij co najmniej ${dens-3}.` : 'Najwyżej 2–3 na tekst';
+
+  // wynik: kara na 100 słów
+  const per100 = Math.max(1, words/100);
+  const penalty = (ban*3 + check + num + Math.max(0,dens-3)*2) / per100;
+  const score = text.trim() ? Math.max(0, Math.min(100, Math.round(100 - penalty*4))) : 0;
+  countTo('scoreNum', score);
+  const ring = $('ring');
+  ring.style.strokeDashoffset = CIRC * (1 - score/100);
+  ring.style.stroke = score >= 85 ? '#4d6b2e' : score >= 60 ? '#17171c' : '#c2307a';
+  $('verdict').textContent = !text.trim() ? 'Wklej tekst, żeby zobaczyć wynik.'
+    : score >= 85 ? 'Do publikacji po ostatnim czytaniu.'
+    : score >= 60 ? 'Kilka miejsc do poprawy, reszta trzyma się dobrze.'
+    : 'Sporo waty. Zacznij od czerwonych zaznaczeń.';
+
+  renderChart(text, hits);
+
+  if (!firstRender && lastBan > 0 && ban === 0 && words >= 40) confetti();
+  lastBan = ban; firstRender = false;
+}
+
+function renderChart(text, hits){
+  const ps = paragraphs(text);
+  const counts = ps.map(p => hits.filter(h => h.start >= p.start && h.start < p.end).length);
+  const max = Math.max(1, ...counts), peak = counts.indexOf(Math.max(...counts));
+  const total = counts.reduce((a,b)=>a+b,0);
+  $('chartNote').textContent = ps.length ? `${ps.length} akapitów, ${total} uwag` : 'brak akapitów';
+  $('paras').innerHTML = ps.map((p,i) => `<button type="button" data-p="${i}" class="${i===peak && counts[i] ? 'peak' : ''}" aria-label="Akapit ${i+1}">§${i+1}</button>`).join('');
+  $('bars').innerHTML = ps.map((p,i) => {
+    const isPeak = i===peak && counts[i] > 0;
+    const v = isPeak && total ? Math.round(counts[i]/total*100)+'%' : counts[i];
+    return `<button type="button" class="bar ${isPeak?'peak':''}" data-p="${i}" aria-label="Akapit ${i+1}: ${counts[i]} uwag"><span class="v">${v}</span><span class="col" style="height:${Math.max(4, counts[i]/max*120)}px"></span><span class="l">§${i+1}</span></button>`;
+  }).join('');
+  window.__paras = ps;
+}
+
+function jumpToParagraph(i){
+  const p = window.__paras[i]; if (!p) return;
+  const vis = current.hits.filter(FILTERS[filter]);
+  const n = vis.findIndex(h => h.start >= p.start && h.start < p.end);
+  if (n >= 0) focusHit(n);
+  else $('secPreview').scrollIntoView({behavior: reduced ? 'auto' : 'smooth'});
+}
+$('paras').addEventListener('click', e => { const b = e.target.closest('[data-p]'); if (b) jumpToParagraph(+b.dataset.p); });
+$('bars').addEventListener('click', e => { const b = e.target.closest('[data-p]'); if (b) jumpToParagraph(+b.dataset.p); });
+
+function focusHit(n){
+  document.querySelectorAll('mark.flash,.item.on').forEach(e => e.classList.remove('flash','on'));
+  const mk = preview.querySelector(`mark[data-n="${n}"]`), it = findingsEl.querySelector(`.item[data-n="${n}"]`);
+  if (mk){ mk.classList.add('flash'); mk.scrollIntoView({block:'center', behavior: reduced ? 'auto' : 'smooth'}); }
+  if (it){ it.classList.add('on'); it.scrollIntoView({block:'nearest'}); }
+}
+findingsEl.addEventListener('click', e => { const b = e.target.closest('.item'); if (b) focusHit(b.dataset.n); });
+preview.addEventListener('click', e => { const m = e.target.closest('mark'); if (m) focusHit(m.dataset.n); });
+
+function setFilter(f){
+  filter = (filter === f && f !== 'all') ? 'all' : f;
+  document.querySelectorAll('.seg button').forEach(b => b.setAttribute('aria-pressed', b.dataset.f === filter));
+  document.querySelectorAll('.tile').forEach(b => b.setAttribute('aria-pressed', b.dataset.f === filter));
+  render();
+}
+document.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => setFilter(b.dataset.f)));
+document.querySelectorAll('.tile').forEach(b => b.addEventListener('click', () => {
+  setFilter(b.dataset.f);
+  if (filter !== 'all') $('secPreview').scrollIntoView({behavior: reduced ? 'auto' : 'smooth', block:'start'});
+}));
+
+function toast(msg){
+  const t = $('toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+$('copyReport').addEventListener('click', () => {
+  const text = src.value, {hits, words} = current;
+  const groups = {};
+  hits.forEach(h => (groups[h.cat] ||= []).push(h));
+  let out = `Slopomierz — raport\nSłowa: ${words}, uwagi: ${hits.length}, czystość: ${$('scoreNum').textContent}%\n`;
+  Object.keys(CAT).filter(c => groups[c]).forEach(c => {
+    out += `\n${CAT[c]} (${groups[c].length})\n`;
+    groups[c].forEach(h => { out += `- „${text.slice(h.start,h.end)}” — ${h.note}\n`; });
+  });
+  const fallback = () => {
+    const ta = document.createElement('textarea'); ta.value = out; ta.style.position='fixed'; ta.style.opacity='0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); toast('Raport skopiowany'); } catch(e){ toast('Nie udało się skopiować'); }
+    ta.remove();
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(out).then(() => toast('Raport skopiowany'), fallback);
+  else fallback();
+});
+
+/* konfetti, gdy znikną wszystkie zakazane frazy */
+function confetti(){
+  if (reduced) { toast('Zero zakazanych fraz'); return; }
+  toast('Zero zakazanych fraz');
+  const c = $('confetti'), ctx = c.getContext('2d'), dpr = window.devicePixelRatio || 1;
+  c.width = innerWidth*dpr; c.height = innerHeight*dpr; ctx.scale(dpr,dpr);
+  const cols = ['#f7d774','#f4b6d8','#c2307a','#a9b97c','#c3c9f2','#bfe7df','#f49a92'];
+  const parts = Array.from({length:140}, () => ({
+    x: innerWidth/2 + (Math.random()-.5)*120, y: innerHeight*0.35,
+    vx: (Math.random()-.5)*14, vy: -Math.random()*12-4, r: Math.random()*6+4,
+    c: cols[Math.floor(Math.random()*cols.length)], a: Math.random()*6, s: Math.random()>.5
+  }));
+  const t0 = performance.now();
+  const frame = now => {
+    const t = now - t0; ctx.clearRect(0,0,innerWidth,innerHeight);
+    parts.forEach(p => {
+      p.vy += .35; p.vx *= .99; p.x += p.vx; p.y += p.vy; p.a += .15;
+      ctx.save(); ctx.translate(p.x,p.y); ctx.rotate(p.a); ctx.fillStyle = p.c; ctx.globalAlpha = Math.max(0, 1 - t/1800);
+      if (p.s) ctx.fillRect(-p.r/2,-p.r/4,p.r,p.r/2); else { ctx.beginPath(); ctx.arc(0,0,p.r/2,0,Math.PI*2); ctx.fill(); }
+      ctx.restore();
+    });
+    if (t < 1800) requestAnimationFrame(frame); else ctx.clearRect(0,0,innerWidth,innerHeight);
+  };
+  requestAnimationFrame(frame);
+}
+
+/* dok: przewijanie i podświetlenie sekcji */
+const dockBtns = [...document.querySelectorAll('.dock button')];
+dockBtns.forEach(b => b.addEventListener('click', () => $(b.dataset.go).scrollIntoView({behavior: reduced ? 'auto' : 'smooth', block:'start'})));
+if ('IntersectionObserver' in window) {
+  const io = new IntersectionObserver(es => es.forEach(e => {
+    if (e.isIntersecting) dockBtns.forEach(b => b.classList.toggle('on', b.dataset.go === e.target.id));
+  }), {rootMargin:'-40% 0px -55% 0px'});
+  dockBtns.forEach(b => io.observe($(b.dataset.go)));
+}
+
+let t; const deb = () => { clearTimeout(t); t = setTimeout(render, 220); };
+src.addEventListener('input', deb);
+custom.addEventListener('input', () => { store.set('cd-custom', custom.value); deb(); });
+const loadSample = () => { src.value = SAMPLE; render(); toast('Wczytano przykładowy tekst'); };
+const clearAll = () => { src.value = ''; render(); src.focus(); };
+$('sample').addEventListener('click', loadSample); $('sampleTop').addEventListener('click', loadSample);
+$('clear').addEventListener('click', clearAll); $('clearTop').addEventListener('click', clearAll);
+
+custom.value = store.get('cd-custom') || '';
+const draft = store.get('cd-draft');
+src.value = draft && draft.trim() ? draft : SAMPLE;
+render();
+})();
+</script>
+</body>
+</html>
